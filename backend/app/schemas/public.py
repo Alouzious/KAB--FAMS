@@ -109,3 +109,18 @@ class ResultScoreEntry(BaseModel):
 
 class UpdateYearOfStudy(BaseModel):
     year_of_study: int
+
+
+class TeamMemberOut(BaseModel):
+    role_label: str
+    name: str
+    email: str | None
+    phone: str | None
+    office: str | None = None
+
+
+class SupervisoryTeamOut(BaseModel):
+    field_supervisor: TeamMemberOut | None
+    academic_supervisor: TeamMemberOut | None
+    department_coordinator: TeamMemberOut | None
+    dean: TeamMemberOut | None

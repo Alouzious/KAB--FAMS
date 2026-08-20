@@ -24,3 +24,23 @@ class PlacementOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class FieldSupervisorCreate(BaseModel):
+    first_name: str
+    last_name: str
+    email: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+
+
+class FieldSupervisorOut(BaseModel):
+    id: UUID
+    first_name: str
+    last_name: str
+    email: str | None
+    phone: str | None
+    gender: str | None
+
+    class Config:
+        from_attributes = True

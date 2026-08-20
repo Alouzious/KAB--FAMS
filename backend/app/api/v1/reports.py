@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
@@ -9,8 +9,9 @@ from app.models.progress_report import ProgressReport
 from app.models.final_report import FinalReport, ReportStatus
 from app.schemas.report import (
     ProgressReportCreate, ProgressReportOut, ProgressReportComment,
-    FinalReportSubmit, FinalReportOut, FinalReportReview,
+    FinalReportOut, FinalReportReview,
 )
+from app.services.cloudinary_service import upload_file
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -54,6 +55,41 @@ def student_progress_reports(student_id: str, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/progress/{report_id}", response_model=ProgressReportOut, dependencies=[Depends(require_role(UserRole.STUDENT))])
+def get_progress_report(
+    report_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = db.query(ProgressReport).filter(
+        ProgressReport.id == report_id,
+        ProgressReport.student_id == current_user.student_profile.id,
+    ).first()
+    if not report:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    return report
+
+
+@router.put("/progress/{report_id}", response_model=ProgressReportOut, dependencies=[Depends(require_role(UserRole.STUDENT))])
+def update_progress_report(
+    report_id: str,
+    payload: ProgressReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    report = db.query(ProgressReport).filter(
+        ProgressReport.id == report_id,
+        ProgressReport.student_id == current_user.student_profile.id,
+    ).first()
+    if not report:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Report not found")
+    for k, v in payload.model_dump().items():
+        setattr(report, k, v)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
 @router.patch(
     "/progress/{report_id}/comment",
     response_model=ProgressReportOut,
@@ -69,28 +105,31 @@ def comment_progress_report(report_id: str, payload: ProgressReportComment, db: 
     return report
 
 
-# ---- Final report ----
-# NOTE: assumes file already uploaded to Cloudinary via cloudinary_service,
-# and file_url/file_public_id passed in here. Show me cloudinary_service.py
-# if you want this wired to accept the raw file upload directly.
+# ---- Final report (direct file upload via Cloudinary) ----
 
 @router.post("/final", response_model=FinalReportOut, dependencies=[Depends(require_eligible_student)])
 def submit_final_report(
-    payload: FinalReportSubmit,
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    uploaded = upload_file(file.file, folder="final-reports")
+
     existing = db.query(FinalReport).filter(FinalReport.student_id == current_user.student_profile.id).first()
     if existing:
-        existing.file_url = payload.file_url
-        existing.file_public_id = payload.file_public_id
+        existing.file_url = uploaded["url"]
+        existing.file_public_id = uploaded["public_id"]
         existing.status = ReportStatus.SUBMITTED
         existing.reviewed_at = None
         db.commit()
         db.refresh(existing)
         return existing
 
-    report = FinalReport(student_id=current_user.student_profile.id, **payload.model_dump())
+    report = FinalReport(
+        student_id=current_user.student_profile.id,
+        file_url=uploaded["url"],
+        file_public_id=uploaded["public_id"],
+    )
     db.add(report)
     db.commit()
     db.refresh(report)
